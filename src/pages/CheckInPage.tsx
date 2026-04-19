@@ -7,11 +7,11 @@ import { Plus } from 'lucide-react';
 type Step = 'feeling' | 'symptoms' | 'details' | 'done';
 
 const FEELING_OPTIONS = [
-  { value: 5, label: 'Great', emoji: '\ud83d\ude04' },
-  { value: 4, label: 'Good', emoji: '\ud83d\ude42' },
-  { value: 3, label: 'Okay', emoji: '\ud83d\ude10' },
-  { value: 2, label: 'Bad', emoji: '\ud83d\ude15' },
-  { value: 1, label: 'Terrible', emoji: '\ud83d\ude14' },
+  { value: 5, label: 'Great', emoji: '😄' },
+  { value: 4, label: 'Good', emoji: '🙂' },
+  { value: 3, label: 'Okay', emoji: '😐' },
+  { value: 2, label: 'Bad', emoji: '😕' },
+  { value: 1, label: 'Terrible', emoji: '😔' },
 ];
 
 const CHANGE_OPTIONS = [
@@ -104,7 +104,7 @@ export default function CheckInPage() {
       <div className="checkin-page">
         <div className="checkin-card">
           <div className="step-content" style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>\u2705</div>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
             <h2>Check-in saved!</h2>
             <p className="subtext">Your progress has been recorded.</p>
             <div className="step-actions" style={{ marginTop: '24px' }}>

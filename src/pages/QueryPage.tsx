@@ -68,7 +68,9 @@ export default function QueryPage() {
         clientId,
         client.practitioner_id,
         prompt,
-        result.matched_score || 0
+        result.matched_score || 0,
+        client.full_name,
+        result.red_flag_detected
       );
       setContacted(true);
     } catch (err) {
@@ -355,8 +357,8 @@ export default function QueryPage() {
               <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <UserCheck size={15} style={{ opacity: 0.6 }} />
                 {client.practitioner_id
-                  ? <><>My professional: </><strong style={{ marginLeft: '4px' }}>{assignedName ?? 'Loading...'}</strong></>
-                  : 'No professional selected \u2014 tap to assign one'}
+                  ? <>My professional: <strong style={{ marginLeft: '4px' }}>{assignedName ?? 'Loading...'}</strong></>
+                  : 'No professional selected — tap to assign one'}
               </span>
               <ChevronRight size={14} style={{ opacity: 0.4 }} />
             </div>

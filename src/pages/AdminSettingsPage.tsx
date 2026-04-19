@@ -1,13 +1,19 @@
 import { useState, useEffect } from 'react';
 import { getLoggedInPractitionerId } from '../hooks/usePractitioner';
-import { getPractitioner, getPractitioners } from '../lib/store';
+import { getPractitioner, getPractitioners, getWebhookSettings, saveWebhookSettings } from '../lib/store';
 import type { Practitioner } from '../types/database';
+import { Link, ExternalLink } from 'lucide-react';
 
 export default function AdminSettingsPage() {
   const practitionerId = getLoggedInPractitionerId()!;
   const [practitioner, setPractitioner] = useState<Practitioner | null>(null);
   const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
   const [loading, setLoading] = useState(true);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [webhookEnabled, setWebhookEnabled] = useState(true);
+  const [savingWebhook, setSavingWebhook] = useState(false);
+  const [webhookSaved, setWebhookSaved] = useState(false);
+  const [webhookError, setWebhookError] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -17,9 +23,29 @@ export default function AdminSettingsPage() {
         const list = await getPractitioners();
         setPractitioners(list);
       }
+      const ws = await getWebhookSettings(practitionerId);
+      if (ws) {
+        setWebhookUrl(ws.webhook_url);
+        setWebhookEnabled(ws.enabled);
+      }
       setLoading(false);
     })();
   }, [practitionerId]);
+
+  async function handleSaveWebhook() {
+    setSavingWebhook(true);
+    setWebhookError('');
+    setWebhookSaved(false);
+    try {
+      await saveWebhookSettings(practitionerId, webhookUrl.trim(), webhookEnabled);
+      setWebhookSaved(true);
+      setTimeout(() => setWebhookSaved(false), 3000);
+    } catch {
+      setWebhookError('Failed to save webhook settings.');
+    } finally {
+      setSavingWebhook(false);
+    }
+  }
 
   if (loading) return <div className="page-loading">Loading...</div>;
 
@@ -35,6 +61,76 @@ export default function AdminSettingsPage() {
           <div><span style={{ color: 'var(--text-muted)' }}>Name: </span><strong>{practitioner?.full_name || practitioner?.name}</strong></div>
           <div><span style={{ color: 'var(--text-muted)' }}>Login Code: </span><strong>{practitioner?.login_code}</strong></div>
           <div><span style={{ color: 'var(--text-muted)' }}>Role: </span><strong>{practitioner?.is_admin ? 'Admin' : 'Practitioner'}</strong></div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: '16px', padding: '16px' }}>
+        <h3 style={{ fontSize: '14px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Link size={14} /> Alert Webhook
+        </h3>
+        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '14px' }}>
+          Paste a Make.com or Zapier webhook URL to receive instant notifications when clients trigger red-flag alerts.
+        </p>
+
+        <div className="form-group" style={{ marginBottom: '12px' }}>
+          <label>Webhook URL</label>
+          <input
+            className="login-input"
+            style={{ marginBottom: 0 }}
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+            placeholder="https://hook.make.com/... or https://hooks.zapier.com/..."
+          />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+          <button
+            onClick={() => setWebhookEnabled(!webhookEnabled)}
+            style={{
+              width: '36px',
+              height: '20px',
+              borderRadius: '10px',
+              background: webhookEnabled ? 'var(--primary)' : 'var(--border)',
+              border: 'none',
+              cursor: 'pointer',
+              position: 'relative',
+              transition: 'background 0.2s',
+              flexShrink: 0,
+            }}
+          >
+            <span style={{
+              position: 'absolute',
+              top: '2px',
+              left: webhookEnabled ? '18px' : '2px',
+              width: '16px',
+              height: '16px',
+              borderRadius: '50%',
+              background: '#fff',
+              transition: 'left 0.2s',
+            }} />
+          </button>
+          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+            {webhookEnabled ? 'Enabled — alerts will be sent' : 'Disabled — no alerts will be sent'}
+          </span>
+        </div>
+
+        {webhookError && <p className="login-error">{webhookError}</p>}
+        {webhookSaved && (
+          <p style={{ fontSize: '13px', color: 'var(--success)', marginBottom: '10px' }}>Webhook settings saved.</p>
+        )}
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button className="btn btn-primary btn-sm" onClick={handleSaveWebhook} disabled={savingWebhook}>
+            {savingWebhook ? 'Saving...' : 'Save Webhook'}
+          </button>
+          <a
+            href="https://www.make.com/en/register"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: '12px', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
+          >
+            <ExternalLink size={12} /> Get a Make.com webhook
+          </a>
         </div>
       </div>
 

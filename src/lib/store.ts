@@ -8,6 +8,7 @@ import type {
   ContactRequest,
   FollowUpReport,
   SymptomChange,
+  ComplianceMetrics,
 } from '../types/database';
 
 export function getPractitionerDisplayName(p: Practitioner): string {
@@ -90,6 +91,7 @@ export async function createClient(payload: {
   next_appointment?: string;
   tracking_duration_weeks?: number;
   tracking_end_date?: string;
+  check_in_frequency?: string;
 }): Promise<Client | null> {
   const { data } = await supabase
     .from('clients')
@@ -192,11 +194,36 @@ export async function storeSymptomQuery(
   });
 }
 
+export async function getWebhookSettings(practitionerId: string): Promise<{ webhook_url: string; enabled: boolean } | null> {
+  const { data } = await supabase
+    .from('webhook_settings')
+    .select('webhook_url, enabled')
+    .eq('practitioner_id', practitionerId)
+    .maybeSingle();
+  return data ?? null;
+}
+
+export async function saveWebhookSettings(practitionerId: string, webhookUrl: string, enabled: boolean): Promise<void> {
+  const existing = await getWebhookSettings(practitionerId);
+  if (existing) {
+    await supabase
+      .from('webhook_settings')
+      .update({ webhook_url: webhookUrl, enabled, updated_at: new Date().toISOString() })
+      .eq('practitioner_id', practitionerId);
+  } else {
+    await supabase
+      .from('webhook_settings')
+      .insert({ practitioner_id: practitionerId, webhook_url: webhookUrl, enabled });
+  }
+}
+
 export async function createContactRequest(
   clientId: string,
   practitionerId: string,
   symptomDescription: string,
-  symptomScore: number
+  symptomScore: number,
+  clientName?: string,
+  redFlagDetected?: boolean
 ): Promise<void> {
   await supabase.from('contact_requests').insert({
     client_id: clientId,
@@ -205,6 +232,28 @@ export async function createContactRequest(
     symptom_score: symptomScore,
     is_read: false,
   });
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+  try {
+    await fetch(`${supabaseUrl}/functions/v1/send-alert-webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({
+        practitioner_id: practitionerId,
+        client_id: clientId,
+        client_name: clientName ?? 'Client',
+        symptom_description: symptomDescription,
+        symptom_score: symptomScore,
+        red_flag_detected: redFlagDetected ?? false,
+      }),
+    });
+  } catch {
+    // webhook failure is non-blocking
+  }
 }
 
 export async function getContactRequests(practitionerId: string): Promise<ContactRequest[]> {
@@ -231,7 +280,109 @@ export async function markContactRequestRead(requestId: string): Promise<void> {
     .eq('id', requestId);
 }
 
-export async function generateReport(clientId: string): Promise<FollowUpReport | null> {
+function calculateComplianceMetrics(checkIns: CheckIn[], trackingWeeks = 8): ComplianceMetrics {
+  const total = checkIns.length;
+  if (total === 0) return { frequency: 0, engagement: 0, variability: 0, recency: 0, overall: 0 };
+
+  const sorted = [...checkIns].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  const expectedTotal = trackingWeeks * 7;
+  const frequency = Math.min(100, Math.round((total / expectedTotal) * 100));
+
+  const engagementScores = checkIns.map((ci) => {
+    let score = 0;
+    if (ci.notes && ci.notes.trim().length > 10) score += 40;
+    else if (ci.notes && ci.notes.trim().length > 0) score += 20;
+    if (ci.medication_taken) score += 20;
+    score += 40;
+    return score;
+  });
+  const engagement = Math.round(engagementScores.reduce((a, b) => a + b, 0) / total);
+
+  let variability = 0;
+  if (total >= 3) {
+    const painValues = sorted.map((c) => c.pain_level);
+    const mean = painValues.reduce((a, b) => a + b, 0) / painValues.length;
+    const variance = painValues.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / painValues.length;
+    const stdDev = Math.sqrt(variance);
+    if (stdDev < 0.5) variability = 100;
+    else if (stdDev < 1.5) variability = 85;
+    else if (stdDev < 2.5) variability = 70;
+    else if (stdDev < 3.5) variability = 50;
+    else variability = 30;
+  } else {
+    variability = 50;
+  }
+
+  const now = Date.now();
+  const lastCheckIn = new Date(sorted[sorted.length - 1].created_at).getTime();
+  const daysSinceLast = (now - lastCheckIn) / (1000 * 60 * 60 * 24);
+  let recency: number;
+  if (daysSinceLast <= 1) recency = 100;
+  else if (daysSinceLast <= 3) recency = 85;
+  else if (daysSinceLast <= 7) recency = 65;
+  else if (daysSinceLast <= 14) recency = 40;
+  else recency = 15;
+
+  const overall = Math.round(frequency * 0.35 + engagement * 0.25 + variability * 0.2 + recency * 0.2);
+
+  return {
+    frequency,
+    engagement,
+    variability,
+    recency,
+    overall,
+  };
+}
+
+function generateRecommendations(
+  overallTrend: 'improving' | 'declining' | 'stable',
+  avgPain: number,
+  avgSleep: number,
+  avgStress: number,
+  flagCount: number,
+  compliance: ComplianceMetrics
+): string[] {
+  const recs: string[] = [];
+
+  if (overallTrend === 'declining') {
+    recs.push('Pain levels are trending upward — consider reviewing the current treatment plan.');
+  } else if (overallTrend === 'improving') {
+    recs.push('Good progress — pain levels are trending downward. Continue current approach.');
+  }
+
+  if (avgPain >= 7) {
+    recs.push('High average pain levels reported. Consider pain management strategies or specialist referral.');
+  }
+
+  if (avgSleep <= 2.5) {
+    recs.push('Poor sleep quality reported. Address sleep hygiene or refer to a sleep specialist.');
+  }
+
+  if (avgStress >= 4) {
+    recs.push('Elevated stress levels detected. Consider relaxation techniques or psychological support.');
+  }
+
+  if (flagCount > 0) {
+    recs.push(`${flagCount} red-flag check-in${flagCount > 1 ? 's' : ''} recorded — review flagged entries urgently.`);
+  }
+
+  if (compliance.frequency < 50) {
+    recs.push('Low check-in frequency. Encourage the client to complete daily check-ins for better monitoring.');
+  }
+
+  if (compliance.recency < 40) {
+    recs.push('No recent check-ins detected. Follow up with the client to re-engage with tracking.');
+  }
+
+  if (recs.length === 0) {
+    recs.push('Client is progressing well. Continue monitoring and maintain current plan.');
+  }
+
+  return recs;
+}
+
+export async function generateReport(clientId: string, client?: Client): Promise<FollowUpReport | null> {
   const checkIns = await getCheckIns(clientId);
   if (checkIns.length === 0) return null;
 
@@ -242,6 +393,7 @@ export async function generateReport(clientId: string): Promise<FollowUpReport |
   const avgSleep = sorted.reduce((s, c) => s + c.sleep_quality, 0) / total;
   const avgStress = sorted.reduce((s, c) => s + c.stress_level, 0) / total;
   const painTrend = sorted.map((c) => c.pain_level);
+  const flagCount = sorted.filter((c) => c.flagged).length;
 
   let overallTrend: 'improving' | 'declining' | 'stable' = 'stable';
   if (total >= 3) {
@@ -266,9 +418,14 @@ export async function generateReport(clientId: string): Promise<FollowUpReport |
     }
   }
 
+  const trackingWeeks = client?.tracking_duration_weeks ?? 8;
+  const complianceMetrics = calculateComplianceMetrics(checkIns, trackingWeeks);
+  const recommendations = generateRecommendations(overallTrend, avgPain, avgSleep, avgStress, flagCount, complianceMetrics);
+
   return {
     total_check_ins: total,
-    compliance_rate: Math.min(100, Math.round((total / 30) * 100)),
+    compliance_rate: complianceMetrics.overall,
+    compliance_metrics: complianceMetrics,
     summary: {
       overall_trend: overallTrend,
       avg_pain_level: Math.round(avgPain * 10) / 10,
@@ -276,6 +433,93 @@ export async function generateReport(clientId: string): Promise<FollowUpReport |
       avg_stress_level: Math.round(avgStress * 10) / 10,
       pain_trend: painTrend,
       symptom_changes: symptomChanges,
+      flag_count: flagCount,
+      recommendations,
     },
   };
+}
+
+export interface DeviceVisit {
+  id: string;
+  client_id: string;
+  device_type: string;
+  user_agent: string;
+  screen_width: number;
+  screen_height: number;
+  page: string;
+  visited_at: string;
+}
+
+export async function recordDeviceVisit(clientId: string, page: string): Promise<void> {
+  const deviceType = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+  await supabase.from('device_visits').insert({
+    client_id: clientId,
+    device_type: deviceType,
+    user_agent: navigator.userAgent,
+    screen_width: window.screen.width,
+    screen_height: window.screen.height,
+    page,
+  });
+}
+
+export async function sendClientInvitation(
+  email: string,
+  name: string,
+  practitionerId: string
+): Promise<{ success: boolean; error?: string }> {
+  const settings = await getWebhookSettings(practitionerId);
+  const webhookUrl = settings?.webhook_url?.trim();
+
+  if (!webhookUrl) {
+    return { success: false, error: 'No invitation webhook configured. Please add your webhook URL in Settings.' };
+  }
+
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'client_invitation',
+        email,
+        name,
+        practitioner_id: practitionerId,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    const status = res.ok ? 'sent' : 'failed';
+
+    await supabase.from('client_invitations').insert({
+      email,
+      name,
+      practitioner_id: practitionerId,
+      status,
+    });
+
+    if (!res.ok) {
+      return { success: false, error: 'Invitation webhook failed. Please try again.' };
+    }
+    return { success: true };
+  } catch {
+    await supabase.from('client_invitations').insert({
+      email,
+      name,
+      practitioner_id: practitionerId,
+      status: 'failed',
+    });
+    return { success: false, error: 'Network error. Please check your connection and try again.' };
+  }
+}
+
+export async function getDeviceVisits(clientId?: string): Promise<DeviceVisit[]> {
+  let query = supabase
+    .from('device_visits')
+    .select('*')
+    .order('visited_at', { ascending: false })
+    .limit(200);
+  if (clientId) {
+    query = query.eq('client_id', clientId);
+  }
+  const { data } = await query;
+  return (data as DeviceVisit[]) ?? [];
 }

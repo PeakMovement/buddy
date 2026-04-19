@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { Outlet, NavLink, Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Outlet, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { ClipboardCheck, MessageCircle, BarChart3, TrendingUp, LogOut, UserCheck, ChevronDown, Check } from 'lucide-react';
 import { getLoggedInClientId, logoutClient } from '../hooks/useClient';
 import { ClientContextProvider, useClientContext, getPractitionerDisplayName } from '../context/ClientContext';
+import { recordDeviceVisit } from '../lib/store';
 
 function PractitionerBanner() {
   const { client, practitioners, assignedPractitioner, selectPractitioner } = useClientContext();
@@ -112,6 +113,13 @@ function PractitionerBanner() {
 
 function ClientLayoutInner() {
   const clientId = getLoggedInClientId();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (clientId) {
+      recordDeviceVisit(clientId, location.pathname);
+    }
+  }, [clientId, location.pathname]);
 
   if (!clientId) {
     return <Navigate to="/app/login" replace />;
