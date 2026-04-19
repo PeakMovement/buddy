@@ -23,7 +23,7 @@ export default function AdminDashboardPage() {
         const practitioners = await getPractitioners();
         const pMap: Record<string, string> = {};
         practitioners.forEach((pr) => { pMap[pr.id] = pr.full_name || pr.name; });
-        (list as any[]).forEach((c) => { c._practitionerName = pMap[c.practitioner_id ?? ''] ?? '\u2014'; });
+        (list as any[]).forEach((c) => { c._practitionerName = pMap[c.practitioner_id ?? ''] ?? '—'; });
       } else {
         list = await getClients(practitionerId);
       }

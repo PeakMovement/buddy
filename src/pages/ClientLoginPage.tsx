@@ -58,7 +58,11 @@ export default function ClientLoginPage() {
           {loading ? 'Checking...' : 'Log in'}
         </button>
 
-        <a href="/admin/login" className="login-switch-link">
+        <a href="/app/register" className="login-switch-link" style={{ marginBottom: 4 }}>
+          New client? Create an account
+        </a>
+
+        <a href="/admin/login" className="login-switch-link" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           Practitioner? Log in here
         </a>
       </div>

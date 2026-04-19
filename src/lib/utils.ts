@@ -17,11 +17,11 @@ export function timeAgo(iso: string): string {
 }
 
 export function feelingEmoji(level: number): string {
-  if (level >= 5) return '\ud83d\ude04';
-  if (level === 4) return '\ud83d\ude42';
-  if (level === 3) return '\ud83d\ude10';
-  if (level === 2) return '\ud83d\ude15';
-  return '\ud83d\ude14';
+  if (level >= 5) return '😄';
+  if (level === 4) return '🙂';
+  if (level === 3) return '😐';
+  if (level === 2) return '😕';
+  return '😔';
 }
 
 export function changeLabel(change: string): string {

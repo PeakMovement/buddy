@@ -1,5 +1,5 @@
 import { Outlet, NavLink, Navigate } from 'react-router-dom';
-import { Users, Bell, Settings, LogOut, UserPlus } from 'lucide-react';
+import { Users, Bell, Settings, LogOut, UserPlus, BarChart2 } from 'lucide-react';
 import { getLoggedInPractitionerId, logoutPractitioner } from '../hooks/usePractitioner';
 
 export default function AdminLayout() {
@@ -45,6 +45,10 @@ export default function AdminLayout() {
         <NavLink to="/admin/add-client" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
           <UserPlus size={20} />
           <span>Add Client</span>
+        </NavLink>
+        <NavLink to="/admin/analytics" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <BarChart2 size={20} />
+          <span>Analytics</span>
         </NavLink>
         <NavLink to="/admin/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
           <Settings size={20} />

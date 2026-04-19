@@ -20,6 +20,7 @@ export interface Client {
   next_appointment: string | null;
   tracking_duration_weeks: number | null;
   tracking_end_date: string | null;
+  check_in_frequency: string | null;
   created_at: string;
 }
 
@@ -82,9 +83,18 @@ export interface SymptomChange {
   trend: 'improving' | 'declining' | 'stable';
 }
 
+export interface ComplianceMetrics {
+  frequency: number;
+  engagement: number;
+  variability: number;
+  recency: number;
+  overall: number;
+}
+
 export interface FollowUpReport {
   total_check_ins: number;
   compliance_rate: number;
+  compliance_metrics: ComplianceMetrics;
   summary: {
     overall_trend: 'improving' | 'declining' | 'stable';
     avg_pain_level: number;
@@ -92,5 +102,7 @@ export interface FollowUpReport {
     avg_stress_level: number;
     pain_trend: number[];
     symptom_changes: SymptomChange[];
+    flag_count: number;
+    recommendations: string[];
   };
 }
