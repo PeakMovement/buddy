@@ -12,7 +12,23 @@ import {
   Moon,
   Brain,
   Award,
+  AlertTriangle,
 } from 'lucide-react';
+
+function ComplianceBar({ label, value }: { label: string; value: number }) {
+  const color = value >= 70 ? 'var(--success)' : value >= 40 ? '#f59e0b' : 'var(--danger)';
+  return (
+    <div style={{ marginBottom: '10px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+        <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{label}</span>
+        <span style={{ fontWeight: 700, color }}>{value}%</span>
+      </div>
+      <div style={{ height: '6px', borderRadius: '3px', background: 'var(--border)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${value}%`, background: color, borderRadius: '3px', transition: 'width 0.4s ease' }} />
+      </div>
+    </div>
+  );
+}
 
 export default function ClientProgressPage() {
   const { client } = useClientContext();
@@ -25,7 +41,7 @@ export default function ClientProgressPage() {
   useEffect(() => {
     if (client) {
       (async () => {
-        const r = await generateReport(client.id);
+        const r = await generateReport(client.id, client);
         setReport(r);
         const cis = await getCheckIns(client.id);
         setCheckIns(cis);
@@ -57,6 +73,7 @@ export default function ClientProgressPage() {
   }
 
   const s = report.summary;
+  const m = report.compliance_metrics;
   const TrendIcon = s.overall_trend === 'improving' ? TrendingUp
     : s.overall_trend === 'declining' ? TrendingDown
     : Minus;
@@ -114,6 +131,22 @@ export default function ClientProgressPage() {
         </div>
       </div>
 
+      <div className="card" style={{ padding: '16px', marginBottom: '12px' }}>
+        <h3 style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Award size={14} /> Compliance Breakdown
+        </h3>
+        <ComplianceBar label="Frequency" value={m.frequency} />
+        <ComplianceBar label="Engagement" value={m.engagement} />
+        <ComplianceBar label="Consistency" value={m.variability} />
+        <ComplianceBar label="Recency" value={m.recency} />
+        <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600 }}>Overall Score</span>
+          <span style={{ fontSize: '18px', fontWeight: 700, color: report.compliance_rate >= 70 ? 'var(--success)' : report.compliance_rate >= 40 ? '#f59e0b' : 'var(--danger)' }}>
+            {report.compliance_rate}%
+          </span>
+        </div>
+      </div>
+
       {symptoms.length > 0 && (
         <div className="card chart-card">
           <h3>Symptom Trends</h3>
@@ -131,12 +164,25 @@ export default function ClientProgressPage() {
           {s.symptom_changes.map((sc, i) => (
             <div key={i} className="symptom-change-row">
               <span className="sc-name">{sc.symptom_name}</span>
-              <span className="sc-values">{sc.start_severity} \u2192 {sc.end_severity}</span>
+              <span className="sc-values">{sc.start_severity} → {sc.end_severity}</span>
               <span className="sc-trend" style={{ color: trendColor(sc.trend) }}>
                 {trendLabel(sc.trend)}
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {s.recommendations.length > 0 && (
+        <div className="card" style={{ padding: '16px', marginBottom: '12px' }}>
+          <h3 style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <AlertTriangle size={14} /> Notes
+          </h3>
+          <ul style={{ paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {s.recommendations.map((rec, i) => (
+              <li key={i} style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{rec}</li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

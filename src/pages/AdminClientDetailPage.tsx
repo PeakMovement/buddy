@@ -1,16 +1,32 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getClient, getCheckIns, getPractitioner } from '../lib/store';
-import type { Client, CheckIn } from '../types/database';
-import { formatDate, timeAgo, feelingEmoji, painColor, changeLabel, changeColor } from '../lib/utils';
-import { ChevronLeft, AlertTriangle, Pill, MessageSquare } from 'lucide-react';
+import { getClient, getCheckIns, generateReport } from '../lib/store';
+import type { Client, CheckIn, FollowUpReport } from '../types/database';
+import { formatDate, timeAgo, feelingEmoji, painColor, changeLabel, changeColor, trendColor } from '../lib/utils';
+import { ChevronLeft, AlertTriangle, Pill, MessageSquare, Pencil, Award } from 'lucide-react';
 import MiniChart from '../components/MiniChart';
+
+function ComplianceBar({ label, value }: { label: string; value: number }) {
+  const color = value >= 70 ? 'var(--success)' : value >= 40 ? '#f59e0b' : 'var(--danger)';
+  return (
+    <div style={{ marginBottom: '8px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '3px' }}>
+        <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+        <span style={{ fontWeight: 700, color }}>{value}%</span>
+      </div>
+      <div style={{ height: '5px', borderRadius: '3px', background: 'var(--border)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${value}%`, background: color, borderRadius: '3px' }} />
+      </div>
+    </div>
+  );
+}
 
 export default function AdminClientDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const navigate = useNavigate();
   const [client, setClient] = useState<Client | null>(null);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
+  const [report, setReport] = useState<FollowUpReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -20,6 +36,10 @@ export default function AdminClientDetailPage() {
       const [c, cis] = await Promise.all([getClient(clientId), getCheckIns(clientId)]);
       setClient(c);
       setCheckIns(cis);
+      if (c) {
+        const r = await generateReport(clientId, c);
+        setReport(r);
+      }
       setLoading(false);
     })();
   }, [clientId]);
@@ -32,9 +52,14 @@ export default function AdminClientDetailPage() {
   return (
     <div className="admin-page">
       <div className="page-header" style={{ marginBottom: '4px' }}>
-        <button className="btn btn-ghost btn-sm" style={{ marginBottom: '8px' }} onClick={() => navigate('/admin/dashboard')}>
-          <ChevronLeft size={16} /> Back
-        </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/admin/dashboard')}>
+            <ChevronLeft size={16} /> Back
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/admin/client/${clientId}/edit`)}>
+            <Pencil size={14} /> Edit
+          </button>
+        </div>
         <h2>{client.full_name}</h2>
         <p>{client.primary_complaint}</p>
       </div>
@@ -63,6 +88,34 @@ export default function AdminClientDetailPage() {
         <div className="card chart-card" style={{ marginBottom: '16px' }}>
           <h3 style={{ fontSize: '13px', marginBottom: '8px' }}>Pain Trend</h3>
           <MiniChart data={painData} label="" />
+        </div>
+      )}
+
+      {report && report.compliance_metrics && (
+        <div className="card" style={{ marginBottom: '16px', padding: '14px 16px' }}>
+          <h3 style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Award size={13} /> Compliance Rating
+          </h3>
+          <ComplianceBar label="Frequency" value={report.compliance_metrics.frequency} />
+          <ComplianceBar label="Engagement" value={report.compliance_metrics.engagement} />
+          <ComplianceBar label="Consistency" value={report.compliance_metrics.variability} />
+          <ComplianceBar label="Recency" value={report.compliance_metrics.recency} />
+          <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600 }}>Overall</span>
+            <span style={{ fontSize: '16px', fontWeight: 700, color: trendColor(report.compliance_rate >= 70 ? 'improving' : report.compliance_rate >= 40 ? 'stable' : 'declining') }}>
+              {report.compliance_rate}%
+            </span>
+          </div>
+          {report.summary.recommendations.length > 0 && (
+            <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+              <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Recommendations</p>
+              <ul style={{ paddingLeft: '14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {report.summary.recommendations.map((rec, i) => (
+                  <li key={i} style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{rec}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
