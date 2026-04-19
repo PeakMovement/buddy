@@ -1,9 +1,19 @@
-import { useState, useEffect } from 'react';
-import { Outlet, NavLink, Navigate, useLocation } from 'react-router-dom';
-import { ClipboardCheck, MessageCircle, BarChart3, TrendingUp, LogOut, UserCheck, ChevronDown, Check } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Outlet, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import {
+  ClipboardCheck, MessageCircle, BarChart3, TrendingUp,
+  LogOut, UserCheck, ChevronDown, Check, Menu, X
+} from 'lucide-react';
 import { getLoggedInClientId, logoutClient } from '../hooks/useClient';
 import { ClientContextProvider, useClientContext, getPractitionerDisplayName } from '../context/ClientContext';
 import { recordDeviceVisit } from '../lib/store';
+
+const CLIENT_NAV = [
+  { to: '/app/checkin', icon: ClipboardCheck, label: 'Check-in' },
+  { to: '/app/query', icon: MessageCircle, label: 'Query' },
+  { to: '/app/timeline', icon: BarChart3, label: 'Timeline' },
+  { to: '/app/progress', icon: TrendingUp, label: 'Progress' },
+];
 
 function PractitionerBanner() {
   const { client, practitioners, assignedPractitioner, selectPractitioner } = useClientContext();
@@ -24,24 +34,10 @@ function PractitionerBanner() {
       <button
         onClick={() => setOpen((v) => !v)}
         disabled={saving}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          padding: '6px 10px',
-          background: assignedPractitioner ? 'var(--surface)' : '#fff7ed',
-          border: `1px solid ${assignedPractitioner ? 'var(--border)' : '#fed7aa'}`,
-          borderRadius: 'var(--radius-sm)',
-          cursor: 'pointer',
-          fontSize: '12px',
-          color: assignedPractitioner ? 'var(--text-secondary)' : '#c2410c',
-          whiteSpace: 'nowrap',
-          maxWidth: '180px',
-          overflow: 'hidden',
-        }}
+        className="practitioner-banner-btn"
       >
         <UserCheck size={13} style={{ flexShrink: 0 }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span className="practitioner-banner-label">
           {assignedPractitioner
             ? getPractitionerDisplayName(assignedPractitioner)
             : 'Assign professional'}
@@ -55,25 +51,10 @@ function PractitionerBanner() {
             style={{ position: 'fixed', inset: 0, zIndex: 99 }}
             onClick={() => setOpen(false)}
           />
-          <div style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
-            right: 0,
-            zIndex: 100,
-            background: '#fff',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-            minWidth: '200px',
-            overflow: 'hidden',
-          }}>
-            <div style={{ padding: '8px 12px 6px', fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid var(--border)' }}>
-              Your Professional
-            </div>
+          <div className="practitioner-dropdown">
+            <div className="practitioner-dropdown-header">Your Professional</div>
             {practitioners.length === 0 ? (
-              <div style={{ padding: '12px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center' }}>
-                No professionals found
-              </div>
+              <div className="practitioner-dropdown-empty">No professionals found</div>
             ) : (
               practitioners.map((p) => {
                 const isSelected = client.practitioner_id === p.id;
@@ -82,21 +63,7 @@ function PractitionerBanner() {
                     key={p.id}
                     onClick={() => handleSelect(p.id)}
                     disabled={saving}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      width: '100%',
-                      padding: '10px 12px',
-                      background: isSelected ? 'var(--primary-light, #eff6ff)' : 'transparent',
-                      border: 'none',
-                      cursor: saving ? 'default' : 'pointer',
-                      fontSize: '14px',
-                      color: isSelected ? 'var(--primary)' : 'var(--text)',
-                      fontWeight: isSelected ? '600' : '400',
-                      textAlign: 'left',
-                      opacity: saving && !isSelected ? 0.5 : 1,
-                    }}
+                    className={`practitioner-dropdown-item${isSelected ? ' selected' : ''}`}
                   >
                     {getPractitionerDisplayName(p)}
                     {isSelected && <Check size={14} />}
@@ -114,12 +81,33 @@ function PractitionerBanner() {
 function ClientLayoutInner() {
   const clientId = getLoggedInClientId();
   const location = useLocation();
+  const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (clientId) {
       recordDeviceVisit(clientId, location.pathname);
     }
   }, [clientId, location.pathname]);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.altKey) {
+      if (e.key === '1') { e.preventDefault(); navigate('/app/checkin'); }
+      if (e.key === '2') { e.preventDefault(); navigate('/app/query'); }
+      if (e.key === '3') { e.preventDefault(); navigate('/app/timeline'); }
+      if (e.key === '4') { e.preventDefault(); navigate('/app/progress'); }
+    }
+    if (e.key === 'Escape') setMenuOpen(false);
+  }, [navigate]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
   if (!clientId) {
     return <Navigate to="/app/login" replace />;
@@ -129,6 +117,9 @@ function ClientLayoutInner() {
     logoutClient();
     window.location.href = '/';
   }
+
+  const currentPage = CLIENT_NAV.find(n => location.pathname.startsWith(n.to))?.label ?? '';
+  const pathParts = location.pathname.split('/').filter(Boolean);
 
   return (
     <div className="app-layout client-layout">
@@ -140,35 +131,82 @@ function ClientLayoutInner() {
             <span className="brand-tagline">Your symptom companion</span>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+
+        <nav className="header-nav-tabs" aria-label="Primary navigation">
+          {CLIENT_NAV.map(({ to, icon: Icon, label }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) => `header-nav-tab${isActive ? ' active' : ''}`}
+            >
+              <Icon size={16} />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="header-actions">
           <PractitionerBanner />
-          <button className="btn btn-ghost btn-sm logout-btn" onClick={handleLogout}>
+          <button
+            className="btn btn-ghost btn-sm hamburger-btn"
+            onClick={() => setMenuOpen(v => !v)}
+            aria-label="Menu"
+          >
+            {menuOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+          <button className="btn btn-ghost btn-sm logout-btn" onClick={handleLogout} title="Log out (Alt+L)">
             <LogOut size={16} />
           </button>
         </div>
       </header>
 
+      {pathParts.length > 1 && (
+        <div className="breadcrumb-bar" aria-label="Breadcrumb">
+          <span className="breadcrumb-item">Buddy</span>
+          {currentPage && (
+            <>
+              <span className="breadcrumb-sep">/</span>
+              <span className="breadcrumb-item active">{currentPage}</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {menuOpen && (
+        <div className="mobile-menu" role="dialog" aria-label="Menu">
+          <div className="mobile-menu-inner">
+            <div className="mobile-menu-section">
+              <PractitionerBanner />
+            </div>
+            <button
+              className="mobile-menu-item"
+              onClick={handleLogout}
+            >
+              <LogOut size={16} />
+              Log out
+            </button>
+            <div className="mobile-menu-shortcuts">
+              <p className="mobile-menu-hint">Quick navigation: Alt+1 through Alt+4</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="app-main">
         <Outlet />
       </main>
 
-      <nav className="app-nav">
-        <NavLink to="/app/checkin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-          <ClipboardCheck size={20} />
-          <span>Check-in</span>
-        </NavLink>
-        <NavLink to="/app/query" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-          <MessageCircle size={20} />
-          <span>Query</span>
-        </NavLink>
-        <NavLink to="/app/timeline" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-          <BarChart3 size={20} />
-          <span>Timeline</span>
-        </NavLink>
-        <NavLink to="/app/progress" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-          <TrendingUp size={20} />
-          <span>Progress</span>
-        </NavLink>
+      <nav className="app-nav mobile-bottom-nav" aria-label="Tab bar">
+        {CLIENT_NAV.map(({ to, icon: Icon, label }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+          >
+            <Icon size={20} />
+            <span>{label}</span>
+          </NavLink>
+        ))}
       </nav>
     </div>
   );

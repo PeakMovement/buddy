@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { AlertCircle, Send, UserCheck, ChevronRight, Check } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { AlertCircle, Send, UserCheck, ChevronRight, Check, Phone, X } from 'lucide-react';
 import { storeSymptomQuery, createContactRequest, getPractitionerDisplayName } from '../lib/store';
-import { analyzeSymptomLocal } from '../lib/symptomAnalysis';
+import { analyzeSymptomLocal, analyzeSymptomRealTime } from '../lib/symptomAnalysis';
 import { getLoggedInClientId } from '../hooks/useClient';
 import { useClientContext } from '../context/ClientContext';
 
@@ -25,6 +25,28 @@ export default function QueryPage() {
   const [contacted, setContacted] = useState(false);
   const [selectingPractitioner, setSelectingPractitioner] = useState(false);
   const [savingPractitioner, setSavingPractitioner] = useState(false);
+  const [redFlags, setRedFlags] = useState({
+    detected: false,
+    severity: 0,
+    keywords: [] as string[],
+    showEmergencyModal: false,
+  });
+  const [rtContacting, setRtContacting] = useState(false);
+  const [rtContacted, setRtContacted] = useState(false);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debouncedAnalyze = useMemo(() => (text: string) => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      const analysis = analyzeSymptomRealTime(text);
+      setRedFlags((prev) => ({
+        detected: analysis.detected,
+        severity: analysis.severity,
+        keywords: analysis.matchedKeywords,
+        showEmergencyModal: analysis.severity >= 9 ? true : prev.showEmergencyModal && analysis.severity >= 9,
+      }));
+    }, 300);
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -32,6 +54,31 @@ export default function QueryPage() {
     }, 4000);
     return () => clearInterval(interval);
   }, []);
+
+  async function handleRtContactProfessional() {
+    if (!clientId || !client?.practitioner_id) {
+      setError('No assigned professional found in your profile');
+      return;
+    }
+    setRtContacting(true);
+    setError('');
+    try {
+      await createContactRequest(
+        clientId,
+        client.practitioner_id,
+        prompt,
+        redFlags.severity,
+        client.full_name,
+        true
+      );
+      setRtContacted(true);
+      setRedFlags((prev) => ({ ...prev, showEmergencyModal: false }));
+    } catch {
+      setError('Failed to send notification. Please try again.');
+    } finally {
+      setRtContacting(false);
+    }
+  }
 
   async function handleSelectPractitioner(practitionerId: string) {
     setSavingPractitioner(true);
@@ -258,7 +305,7 @@ export default function QueryPage() {
             </div>
 
             <div className="step-actions" style={{ flexDirection: 'column', gap: '12px' }}>
-              {result.red_flag_detected && !contacted && (
+              {result.matched_score >= 5 && !contacted && (
                 <>
                   {!client?.practitioner_id ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -277,12 +324,19 @@ export default function QueryPage() {
                   ) : (
                     <button
                       className="btn btn-primary"
-                      style={{ flex: 1, backgroundColor: '#c2410c' }}
+                      style={{
+                        flex: 1,
+                        backgroundColor: result.matched_score >= 9 ? '#b91c1c' : result.matched_score >= 7 ? '#c2410c' : '#1d4ed8',
+                      }}
                       onClick={handleContactProfessional}
                       disabled={contacting}
                     >
                       <Send size={16} />
-                      {contacting ? 'Sending...' : `Contact ${assignedName ?? 'My Professional'}`}
+                      {contacting
+                        ? 'Sending...'
+                        : result.matched_score >= 7
+                        ? `Contact ${assignedName ?? 'My Professional'} — urgent review needed`
+                        : `Contact ${assignedName ?? 'My Professional'} — symptoms noted`}
                     </button>
                   )}
                 </>
@@ -368,10 +422,79 @@ export default function QueryPage() {
             className="notes-input"
             placeholder="Type your symptoms here..."
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(e) => {
+              setPrompt(e.target.value);
+              debouncedAnalyze(e.target.value);
+              if (!e.target.value.trim()) {
+                setRedFlags({ detected: false, severity: 0, keywords: [], showEmergencyModal: false });
+                setRtContacted(false);
+              }
+            }}
             rows={6}
-            style={{ marginBottom: '16px' }}
+            style={{ marginBottom: redFlags.detected ? '8px' : '16px' }}
           />
+
+          {redFlags.detected && (
+            <div style={{
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-sm)',
+              marginBottom: '16px',
+              fontSize: '13px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              ...(redFlags.severity >= 9
+                ? { backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c' }
+                : redFlags.severity >= 7
+                ? { backgroundColor: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }
+                : { backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }),
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                <AlertCircle size={15} style={{ flexShrink: 0, marginTop: '1px' }} />
+                <span style={{ fontWeight: '500' }}>
+                  {redFlags.severity >= 9
+                    ? 'This may need emergency attention'
+                    : redFlags.severity >= 7
+                    ? 'This may need immediate attention — urgent review recommended'
+                    : 'Symptoms noted — your professional can help'}
+                </span>
+              </div>
+
+              {redFlags.severity >= 5 && client?.practitioner_id && !rtContacted && (
+                <button
+                  onClick={handleRtContactProfessional}
+                  disabled={rtContacting}
+                  style={{
+                    alignSelf: 'flex-start',
+                    padding: '6px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: 'none',
+                    cursor: rtContacting ? 'default' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    backgroundColor: redFlags.severity >= 9 ? '#b91c1c' : redFlags.severity >= 7 ? '#92400e' : '#1d4ed8',
+                    color: '#fff',
+                    opacity: rtContacting ? 0.7 : 1,
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Send size={12} />
+                    {rtContacting
+                      ? 'Sending...'
+                      : redFlags.severity >= 7
+                      ? `Contact ${assignedName ?? 'My Professional'} — urgent review needed`
+                      : `Contact ${assignedName ?? 'My Professional'} — symptoms noted`}
+                  </span>
+                </button>
+              )}
+
+              {rtContacted && (
+                <span style={{ fontSize: '12px', fontWeight: '500' }}>
+                  Notification sent to {assignedName ?? 'your professional'}
+                </span>
+              )}
+            </div>
+          )}
 
           <div style={{
             padding: '12px',
@@ -397,11 +520,132 @@ export default function QueryPage() {
               onClick={handleSubmit}
               disabled={analyzing}
             >
-              {analyzing ? 'Analyzing...' : 'Submit'}
+              {analyzing ? 'Analyzing...' : redFlags.severity >= 8 ? 'Get Urgent Guidance' : 'Submit'}
             </button>
           </div>
         </div>
       </div>
+
+      {redFlags.showEmergencyModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '24px',
+        }}>
+          <div style={{
+            backgroundColor: '#fff',
+            borderRadius: 'var(--radius)',
+            padding: '28px 24px',
+            maxWidth: '360px',
+            width: '100%',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            position: 'relative',
+          }}>
+            <button
+              onClick={() => setRedFlags((prev) => ({ ...prev, showEmergencyModal: false }))}
+              style={{
+                position: 'absolute',
+                top: '12px',
+                right: '12px',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#6b7280',
+                padding: '4px',
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '50%',
+                backgroundColor: '#fef2f2',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <AlertCircle size={20} style={{ color: '#b91c1c' }} />
+              </div>
+              <h3 style={{ fontSize: '17px', fontWeight: '700', color: '#b91c1c', margin: 0 }}>
+                Urgent Symptoms Detected
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '14px', color: '#374151', lineHeight: '1.6', marginBottom: '20px' }}>
+              The symptoms you have described may require immediate attention. Please take action now.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <a
+                href="tel:999"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '12px',
+                  backgroundColor: '#b91c1c',
+                  color: '#fff',
+                  borderRadius: 'var(--radius-sm)',
+                  fontWeight: '700',
+                  fontSize: '15px',
+                  textDecoration: 'none',
+                }}
+              >
+                <Phone size={16} />
+                Call 999
+              </a>
+
+              {client?.practitioner_id && !rtContacted ? (
+                <button
+                  onClick={handleRtContactProfessional}
+                  disabled={rtContacting}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '12px',
+                    backgroundColor: '#fff',
+                    color: '#b91c1c',
+                    border: '2px solid #b91c1c',
+                    borderRadius: 'var(--radius-sm)',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    cursor: rtContacting ? 'default' : 'pointer',
+                    opacity: rtContacting ? 0.7 : 1,
+                  }}
+                >
+                  <Send size={15} />
+                  {rtContacting ? 'Sending...' : `Contact ${assignedName ?? 'My Professional'}`}
+                </button>
+              ) : rtContacted ? (
+                <div style={{
+                  padding: '12px',
+                  backgroundColor: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: 'var(--radius-sm)',
+                  textAlign: 'center',
+                  color: '#166534',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                }}>
+                  Notification sent to {assignedName ?? 'your professional'}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
