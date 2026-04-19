@@ -157,19 +157,6 @@ export default function AdminLayout() {
           </button>
         </header>
 
-        <nav className="admin-bottom-nav mobile-bottom-nav" aria-label="Admin tab bar">
-          {ADMIN_NAV.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-            >
-              <Icon size={20} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-        </nav>
-
         <main className="admin-content">
           <Outlet />
         </main>
