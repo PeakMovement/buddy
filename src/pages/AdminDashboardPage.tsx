@@ -4,7 +4,7 @@ import { getLoggedInPractitionerId } from '../hooks/usePractitioner';
 import { getPractitioner, getClients, getPractitioners } from '../lib/store';
 import type { Client, Practitioner } from '../types/database';
 import { formatDate } from '../lib/utils';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, User } from 'lucide-react';
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -23,7 +23,7 @@ export default function AdminDashboardPage() {
         const practitioners = await getPractitioners();
         const pMap: Record<string, string> = {};
         practitioners.forEach((pr) => { pMap[pr.id] = pr.full_name || pr.name; });
-        (list as any[]).forEach((c) => { c._practitionerName = pMap[c.practitioner_id ?? ''] ?? '—'; });
+        (list as any[]).forEach((c) => { c._practitionerName = pMap[c.practitioner_id ?? ''] ?? '\u2014'; });
       } else {
         list = await getClients(practitionerId);
       }
@@ -60,10 +60,23 @@ export default function AdminDashboardPage() {
               <div className="client-card-header">
                 <div>
                   <h3 className="client-name">{client.full_name}</h3>
-                  {(client as any)._practitionerName && (
-                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      {(client as any)._practitionerName}
-                    </p>
+                  {(client as any)._practitionerName !== undefined && (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      marginTop: '4px',
+                      padding: '2px 8px',
+                      borderRadius: '999px',
+                      fontSize: '11px',
+                      fontWeight: '500',
+                      ...((client as any)._practitionerName === '\u2014'
+                        ? { backgroundColor: 'var(--bg)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
+                        : { backgroundColor: '#e0f2fe', color: '#0369a1' }),
+                    }}>
+                      <User size={10} />
+                      {(client as any)._practitionerName === '\u2014' ? 'Unassigned' : (client as any)._practitionerName}
+                    </span>
                   )}
                   <p className="client-complaint">{client.primary_complaint}</p>
                 </div>
